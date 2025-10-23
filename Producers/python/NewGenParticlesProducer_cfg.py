@@ -2,7 +2,7 @@ import FWCore.ParameterSet.Config as cms
 import FWCore.Utilities.FileUtils as FileUtils
 import FWCore.ParameterSet.VarParsing as VarParsing
 
-process = cms.Process("NEWGEN")
+process = cms.Process("MODIFY")
 
 # import of standard configurations
 process.load('Configuration.StandardSequences.Services_cff')
@@ -26,7 +26,7 @@ process.MessageLogger.cerr.FwkReport.reportEvery = cms.untracked.int32( 1 )
                                                                        
 process.source = cms.Source("PoolSource",
     skipEvents = cms.untracked.uint32(0),                       
-    fileNames = cms.untracked.vstring('file:test/output_stdgen.root'),
+    fileNames = cms.untracked.vstring('file:test/step1_stdGEN.root'),
     secondaryFileNames = cms.untracked.vstring()
 )
 
@@ -38,7 +38,7 @@ process.GENoutput = cms.OutputModule("PoolOutputModule",
         filterName = cms.untracked.string('')
     ),
     eventAutoFlushCompressedSize = cms.untracked.int32(20971520),
-    fileName = cms.untracked.string('test/output_newgen.root'),
+    fileName = cms.untracked.string('test/step1_newGEN.root'),
     outputCommands = cms.untracked.vstring(
         "keep *",
         "drop ints_genParticles__GEN",
@@ -49,19 +49,7 @@ process.GENoutput = cms.OutputModule("PoolOutputModule",
         "drop *_ak8GenJets_*_GEN",
         "drop *_ak8GenJetsNoNu_*_GEN",
         "drop *_genMetCalo_*_GEN",
-        "drop *_genMetTrue_*_GEN",
-        "drop *_genParticlesForJets_*_NEWGEN",
-        "drop *_genParticlesForJetsNoNu_*_NEWGEN",
-        "drop *_ak4GenJets*_rho_NEWGEN",
-        "drop *_ak4GenJets*_rhos_NEWGEN",
-        "drop *_ak4GenJets*_sigma_NEWGEN",
-        "drop *_ak4GenJets*_sigmas_NEWGEN",
-        "drop *_ak8GenJets*_rho_NEWGEN",
-        "drop *_ak8GenJets*_rhos_NEWGEN",
-        "drop *_ak8GenJets*_sigma_NEWGEN",
-        "drop *_ak8GenJets*_sigmas_NEWGEN",
-        "drop *_genCandidatesForMET_*_NEWGEN",
-        "drop *_genParticlesForMETAllVisible_*_NEWGEN",
+        "drop *_genMetTrue_*_GEN"
     ),
     splitLevel = cms.untracked.int32(0)
 )
@@ -69,43 +57,31 @@ process.GENoutput = cms.OutputModule("PoolOutputModule",
 # Redefine sequences to avoid collection conflicts
 process.load("Configuration.StandardSequences.Generator_cff")
 process.GeneInfoTask.remove(process.genParticles)
+process.genParticles = cms.EDProducer("NewGenParticlesProducer",
 
-process.load('GenParticlesHacker.Producers.NewGenParticlesProducer_cfi')
+    genInts         = cms.InputTag("genParticles","","GEN"),
+    genCollection   = cms.InputTag("genParticles","","GEN"),
+    lheEvents       = cms.InputTag("externalLHEProducer"), 
+    
+    motherPdgId     = cms.vint32(-999,-999), #PdgId of the mother
+    motherStatus    = cms.vint32(-999,-999), #Status of the mother
+    excludeMomPdgId = cms.vint32(-999),      #PdgId of the mother
+    pdgIdIn         = cms.vint32(11,-11),    #Input pdgIds to change
+    pdgIdOut        = cms.vint32(22, 22),    #Output new pdgIds
+    statusIn        = cms.vint32(1,1),       #Input status to change
+    statusOut       = cms.vint32(1,1),       #Output new status   
+    chargeOut       = cms.vint32(0,0),       #Output new charge  
+    massOut         = cms.vdouble(0.,0.),    #Output new mass   
+    doLHEMatching   = cms.bool(True),        #Match with LHEparticles
+    dRMaxLHEMatch   = cms.double(0.8),       #dRMax for LHEparticles-matching
+    ignoreTauDecays = cms.bool(True),        #Ignore particles from tau-decays
+    suppressFSR     = cms.bool(True),        #Suppress FSR
+    preserveAngles  = cms.bool(True),        #If Suppress FSR, preserve the particle angles, therefore the mother invariante mass will change
+    debug           = cms.bool(False)         #Use debug mode
+    
+)
 process.GeneInfoTask.add(process.genParticles)
-
-process.load("RecoJets.Configuration.RecoGenJets_cff")
-process.genParticlesForJets.src = cms.InputTag("genParticles","modified","NEWGEN")
-process.ak4GenJets.src = cms.InputTag("genParticlesForJets","","NEWGEN")
-process.ak8GenJets.src = cms.InputTag("genParticlesForJets","","NEWGEN")
-process.genParticlesForJetsNoNu.src = cms.InputTag("genParticles","modified","NEWGEN")
-process.ak4GenJetsNoNu.src = cms.InputTag("genParticlesForJetsNoNu","","NEWGEN")
-process.ak8GenJetsNoNu.src = cms.InputTag("genParticlesForJetsNoNu","","NEWGEN")
-process.genJetSequence = cms.Sequence(
-    process.genParticlesForJets +
-    process.genParticlesForJetsNoNu +
-    process.ak4GenJets +
-    process.ak4GenJetsNoNu +
-    process.ak8GenJets +
-    process.ak8GenJetsNoNu
-)
-
-process.load("RecoMET.Configuration.RecoGenMET_cff")
-process.genCandidatesForMET.src = cms.InputTag("genParticles","modified","NEWGEN")
-process.genParticlesForMETAllVisible.src = cms.InputTag("genParticles","modified","NEWGEN")
-process.genMetCalo.src = cms.InputTag("genCandidatesForMET","","NEWGEN")
-process.genMetTrue.src = cms.InputTag("genParticlesForMETAllVisible","","NEWGEN")
-process.genMETSequence = cms.Sequence(
-    process.genCandidatesForMET +
-    process.genParticlesForMETAllVisible +
-    process.genMetCalo +
-    process.genMetTrue
-)
-
 process.producer_step = cms.Path(process.genParticles)
-process.genjet_step = cms.Path(process.genJetSequence)
-process.genmet_step = cms.Path(process.genMETSequence)
 process.endjob_step = cms.EndPath(process.GENoutput)
-process.schedule = cms.Schedule(process.producer_step,process.genjet_step,process.genmet_step,process.endjob_step)
-#process.schedule = cms.Schedule(process.producer_step,process.endjob_step)
-
+process.schedule = cms.Schedule(process.producer_step,process.endjob_step)
 
