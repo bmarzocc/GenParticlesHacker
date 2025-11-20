@@ -20,12 +20,13 @@ public:
     const reco::GenParticle* getLastDaughterSamePdgID( const reco::GenParticle* particle ); 
     const reco::GenParticle* getFirstMother( const reco::GenParticle* particle, int pdgId, int status ); 
     const reco::GenParticle* getLastMother( const reco::GenParticle* particle, int pdgId, int status); 
-    void printAllDaughters( const reco::GenParticle* particle, int depth );
+    void printAllDaughters( const reco::GenParticle* particle, int depth, bool printAll ); 
 
 private:
     edm::EDGetTokenT<reco::GenParticleCollection> genParticlesToken_;
     edm::EDGetTokenT<LHEEventProduct> lheEventsToken_;
     bool debug_;
+    bool isParticleGun_;
     std::vector<int> motherPdgId_;
     std::vector<int> motherStatus_;
     std::vector<int> excludeMomPdgId_;
@@ -49,6 +50,8 @@ GenParticleAnalyzer::GenParticleAnalyzer(const edm::ParameterSet& iConfig):
     genParticlesToken_(consumes<reco::GenParticleCollection>(iConfig.getParameter<edm::InputTag>("genParticles"))),
     lheEventsToken_(consumes<LHEEventProduct>(iConfig.getParameter<edm::InputTag>("lheEvents")))
 {
+    debug_           = iConfig.getParameter<bool>( "debug" ); 
+    isParticleGun_   = iConfig.getParameter<bool>( "isParticleGun" ); 
     motherPdgId_     = iConfig.getParameter<std::vector<int> >( "motherPdgId" );
     motherStatus_    = iConfig.getParameter<std::vector<int> >( "motherStatus" );
     excludeMomPdgId_ = iConfig.getParameter<std::vector<int> >( "excludeMomPdgId" );
@@ -58,7 +61,6 @@ GenParticleAnalyzer::GenParticleAnalyzer(const edm::ParameterSet& iConfig):
     ignoreTauDecays_ = iConfig.getParameter<bool>( "ignoreTauDecays" );
     doLHEMatching_   = iConfig.getParameter<bool>( "doLHEMatching" );
     dRMaxLHEMatch_   = iConfig.getParameter<double>( "dRMaxLHEMatch" );
-    debug_           = iConfig.getParameter<bool>( "debug" ); 
     
     assert(motherPdgId_.size()==motherStatus_.size());
     assert(pdgIdIn_.size()==statusIn_.size());
@@ -74,7 +76,9 @@ void GenParticleAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetu
     }
     
     edm::Handle<LHEEventProduct> lheEvents;
-    iEvent.getByToken(lheEventsToken_, lheEvents);
+    if(doLHEMatching_){
+       iEvent.getByToken(lheEventsToken_, lheEvents);
+    }
     
     if(doLHEMatching_){
        if(!lheEvents.isValid()) {
@@ -83,9 +87,18 @@ void GenParticleAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetu
        }
     }
     
-    int runId = iEvent.id().run();
-    int lumiId = iEvent.luminosityBlock();
-    long int eventId = iEvent.id().event();
+    if(isParticleGun_){
+       for(unsigned int i = 0; i <genParticles->size(); ++i)
+       {
+           genPart = &genParticles->at(i);
+           for(unsigned int j = 0; j <pdgIdIn_.size(); ++j)
+           {
+               if(genPart->pdgId()==pdgIdIn_.at(j) && genPart->status()==statusIn_.at(j))
+                  printAllDaughters( genPart, 0, true ); 
+           }
+       } 
+       return;   
+    }
     
     lheParticles.clear();
     lheParticlesID.clear();
@@ -94,7 +107,7 @@ void GenParticleAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetu
        const auto& hepeup = lheEvents->hepeup();
        const auto& particles = hepeup.PUP;
        if(debug_) std::cout << "LHE-particles: " << particles.size() << std::endl;
-       for(size_t i = 0; i < particles.size(); ++i) {
+       for(size_t i = 0; i < particles.size(); ++i){ 
            const auto& p = particles[i];
            vec.SetPxPyPzE(p[0],p[1],p[2],p[3]);
            if(debug_){
@@ -109,8 +122,7 @@ void GenParticleAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetu
         	       << ", pt = " << vec.Pt()
         	       << ", E = " << p[3]
         	       << ", m = " << p[4] << std::endl;
-            }          	       
-           
+           }          	       
            lheParticles.push_back(vec);
            lheParticlesID.push_back(hepeup.IDUP[i]);
            lheParticlesStatus.push_back(hepeup.ISTUP[i]);
@@ -188,7 +200,7 @@ void GenParticleAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetu
     
     std::cout << "GenParticles trees... " << std::endl;
     for(unsigned int i=0; i<mothers.size(); i++){
-        printAllDaughters( mothers.at(i), 0 );    
+        printAllDaughters( mothers.at(i), 0, false );    
     }
     
     //Check FSR photons
@@ -309,14 +321,23 @@ const reco::GenParticle* GenParticleAnalyzer::getFirstMother( const reco::GenPar
     return first;
 }
 
-void GenParticleAnalyzer::printAllDaughters( const reco::GenParticle* particle, int depth ) 
+void GenParticleAnalyzer::printAllDaughters( const reco::GenParticle* particle, int depth, bool printAll=false ) 
 {
    // Base case: safety check
    if(!particle) return;
    if(depth==0){
-      std::cout << "Mother PDG ID: " << particle->pdgId()
+      if(!printAll){ 
+         std::cout << "Mother PDG ID: " << particle->pdgId()
                 << ", status: " << particle->status()
                 << ", energy: " << particle->energy() << std::endl;
+      }else{
+         std::cout << "Mother PDG ID: " << particle->pdgId()
+                << ", status: " << particle->status()
+                << ", energy: " << particle->energy()  
+                << ", pt: " << particle->pt()      
+                << ", eta: " << particle->eta()
+                << ", phi: " << particle->phi() << std::endl;  
+      }          
    }
    
    // Loop over direct daughters
@@ -325,11 +346,21 @@ void GenParticleAnalyzer::printAllDaughters( const reco::GenParticle* particle, 
        const reco::Candidate* dau = particle->daughterRef(i).get();
 
        // Indentation for visual hierarchy
-       std::cout << std::string(depth * 2, ' ')
+       if(!printAll){ 
+          std::cout << std::string(depth * 2, ' ')
                  << "Daughter PDG ID: " << dau->pdgId()
                  << ", status: " << dau->status()
                  << ", energy: " << dau->energy() << std::endl;
-
+       }else{
+          std::cout << std::string(depth * 2, ' ')
+                 << "Daughter PDG ID: " << dau->pdgId()
+                 << ", status: " << dau->status()
+                 << ", energy: " << dau->energy() 
+                 << ", pt: " << dau->pt()
+                 << ", eta: " << dau->eta()  
+                 << ", phi: " << dau->phi() << std::endl;   
+       } 
+       
        // Try to cast to reco::GenParticle for recursive call
        const reco::GenParticle* genDau = dynamic_cast<const reco::GenParticle*>(dau);
        if(genDau) {
